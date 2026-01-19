@@ -1,0 +1,19 @@
+[project]
+name = "rlm-mcp"
+version = "0.1.0"
+description = "MCP server for RLM (Recursive Language Models)"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.2.0,<2",
+    "rlm @ file:///${PROJECT_ROOT}/..",
+]
+
+[project.scripts]
+rlm-mcp = "server:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["server"]
