@@ -39,7 +39,7 @@ mcp = FastMCP("rlm-server")
 def _create_rlm(
     model: str = DEFAULT_MODEL,
     max_depth: int = 1,
-    verbose: bool = True,
+    verbose: bool = False,
 ) -> RLM:
     """Create an RLM instance with the specified configuration."""
     return RLM(
