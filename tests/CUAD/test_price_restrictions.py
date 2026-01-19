@@ -200,15 +200,22 @@ class TestPriceRestrictionAudit:
     def test_pricing_restriction_audit_anthropic(self, document_bundle: str):
         """
         Run the pricing restriction audit using Anthropic's Claude.
+        Uses Claude 4.5 Opus as the main model with Claude 4.5 Haiku for sub-calls.
         """
         full_prompt = f"{PRICING_AUDIT_PROMPT}\n\n{document_bundle}"
 
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
         rlm = RLM(
             backend="anthropic",
             backend_kwargs={
-                "api_key": os.environ.get("ANTHROPIC_API_KEY"),
-                "model_name": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+                "api_key": api_key,
+                "model_name": os.environ.get("RLM_MODEL", "claude-opus-4-5-20251101"),
             },
+            other_backends=["anthropic"],
+            other_backend_kwargs=[{
+                "api_key": api_key,
+                "model_name": os.environ.get("RLM_SUB_MODEL", "claude-haiku-4-5-20251001"),
+            }],
             environment="local",
             max_iterations=30,
             verbose=True,
