@@ -1,0 +1,25 @@
+You are a contract analysis assistant reviewing a bundle of 30 commercial contracts.
+
+TASK: For each document, determine if it contains an EXPLICIT NUMERICAL CAP on price increases.
+
+DEFINITION: An "explicit numerical cap" means the contract states a specific percentage or dollar amount
+that limits how much prices can increase. Examples:
+- "prices shall not increase by more than 5% annually" → YES
+- "increases shall not exceed $10,000 per year" → YES
+- "prices may be adjusted in line with CPI" → YES (CPI is a numerical index)
+- "prices may be adjusted by mutual agreement" → NO (no specific number)
+- "prices are subject to change" → NO (no cap stated)
+- Document contains no pricing terms → NO
+
+OUTPUT FORMAT: Return a JSON object where keys are filenames and values are objects with:
+- "has_cap": "YES" | "NO"
+- "cap_value": the specific cap if YES (e.g., "5%", "10%", "CPI", "$10,000"), or null if NO
+- "evidence": one verbatim quote supporting your answer (max 100 chars), or null if no pricing terms
+
+Example:
+{
+  "ContractA.txt": {"has_cap": "YES", "cap_value": "5%", "evidence": "not to exceed five percent (5%)"},
+  "ContractB.txt": {"has_cap": "NO", "cap_value": null, "evidence": null}
+}
+
+IMPORTANT: You must include ALL 30 documents in your response. Do not skip any.

@@ -10,7 +10,9 @@ The test runs a pricing restriction audit prompt across all documents and
 evaluates RLM's ability to correctly identify price restrictions.
 """
 
+import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -40,9 +42,14 @@ POSITIVE_FILES = {
     "HEALTHGATEDATACORP_11_24_1999-EX-10.1-HOSTING AND MANAGEMENT AGREEMENT (1).txt",
 }
 
-# Load prompt from external file
+# Load prompts from external files
 PROMPT_FILE = Path(__file__).parent / "test_price_restrictions_prompt.txt"
 PRICING_AUDIT_PROMPT = PROMPT_FILE.read_text()
+
+PRICE_CAP_PROMPT_FILE = Path(__file__).parent / "test_price_cap_detection_prompt.txt"
+PRICE_CAP_PROMPT = PRICE_CAP_PROMPT_FILE.read_text()
+
+GROUND_TRUTH_FILE = Path(__file__).parent / "ground_truth_price_caps.json"
 
 
 def load_all_contracts() -> dict[str, str]:
@@ -210,6 +217,118 @@ class TestPriceRestrictionAudit:
                 print(f"  [MENTIONED] {short_name}")
             else:
                 print(f"  [MISSING]   {short_name}")
+
+    @pytest.mark.skipif(
+        not os.environ.get("ANTHROPIC_API_KEY"),
+        reason="ANTHROPIC_API_KEY not set"
+    )
+    @pytest.mark.slow
+    def test_explicit_price_cap_detection(self, document_bundle: str):
+        """
+        Detect explicit numerical price caps in all 30 contracts.
+
+        This test uses a narrower, more structured question with clear ground truth:
+        - Binary YES/NO for each document
+        - Structured JSON output for automated scoring
+        - Clear definition of what counts as an "explicit numerical cap"
+        """
+        full_prompt = f"{PRICE_CAP_PROMPT}\n\n{document_bundle}"
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        rlm = RLM(
+            backend="anthropic",
+            backend_kwargs={
+                "api_key": api_key,
+                "model_name": os.environ.get("RLM_MODEL", "claude-opus-4-5-20251101"),
+            },
+            other_backends=["anthropic"],
+            other_backend_kwargs=[{
+                "api_key": api_key,
+                "model_name": os.environ.get("RLM_SUB_MODEL", "claude-haiku-4-5-20251001"),
+            }],
+            environment="local",
+            max_iterations=30,
+            verbose=True,
+        )
+
+        result = rlm.completion(full_prompt)
+
+        # Basic validation
+        assert result.response, "RLM returned empty response"
+
+        # Extract JSON from response (may be wrapped in markdown code blocks)
+        response_text = result.response.strip()
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            json_str = response_text
+
+        # Parse JSON response
+        try:
+            extracted = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            print(f"\nFailed to parse JSON response: {e}")
+            print(f"Response was:\n{result.response}")
+            pytest.fail(f"Could not parse JSON from response: {e}")
+
+        # Verify all 30 documents covered
+        assert len(extracted) == 30, f"Expected 30 docs, got {len(extracted)}"
+
+        # Load ground truth
+        with open(GROUND_TRUTH_FILE) as f:
+            ground_truth = json.load(f)
+
+        # Score
+        correct = 0
+        mismatches = []
+        for filename, expected in ground_truth.items():
+            actual = extracted.get(filename, {}).get("has_cap")
+            if actual == expected["has_cap"]:
+                correct += 1
+            else:
+                mismatches.append({
+                    "filename": filename,
+                    "expected": expected["has_cap"],
+                    "actual": actual,
+                    "expected_evidence": expected.get("evidence"),
+                    "actual_evidence": extracted.get(filename, {}).get("evidence"),
+                })
+
+        accuracy = correct / len(ground_truth)
+
+        # Print results
+        print("\n" + "=" * 80)
+        print("RLM PRICE CAP DETECTION RESULT")
+        print("=" * 80)
+        print(f"\nAccuracy: {accuracy:.1%} ({correct}/{len(ground_truth)})")
+        print(f"Execution time: {result.execution_time:.2f}s")
+        print(f"Usage: {result.usage_summary}")
+
+        if mismatches:
+            print("\n" + "-" * 80)
+            print("MISMATCHES:")
+            print("-" * 80)
+            for m in mismatches:
+                print(f"\n  {m['filename'][:60]}...")
+                print(f"    Expected: {m['expected']}")
+                print(f"    Actual:   {m['actual']}")
+                if m['expected_evidence']:
+                    print(f"    Ground truth evidence: {m['expected_evidence'][:80]}...")
+                if m['actual_evidence']:
+                    print(f"    Model evidence: {m['actual_evidence'][:80]}...")
+
+        print("\n" + "-" * 80)
+        print("FILES WITH EXPLICIT CAPS (from model):")
+        print("-" * 80)
+        for filename, data in sorted(extracted.items()):
+            if data.get("has_cap") == "YES":
+                short_name = filename[:50] + "..." if len(filename) > 50 else filename
+                cap = data.get("cap_value", "?")
+                print(f"  {short_name}: {cap}")
+
+        # Require 100% accuracy
+        assert accuracy >= 1.0, f"Accuracy {accuracy:.1%} below 100% threshold"
 
 
 if __name__ == "__main__":
